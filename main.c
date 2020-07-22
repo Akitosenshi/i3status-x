@@ -70,11 +70,19 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "error in pthread_create()\n");
 			return 1;
 		}
+		//eat the garbage
+		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
+		buffer[readbytes] = '\0';
+		write(1, buffer, readbytes);
+		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
+		buffer[readbytes] = '\0';
+		write(1, buffer, readbytes);
+		//main lööp
 		while(!terminate && readbytes != -1) {
 			readbytes = read(ipc[0], buffer, BUFFER_SIZE);
 			readbytes += prependRate(buffer, txFile, rxFile, readbytes + 1);
 			buffer[readbytes] = '\0';
-			write(1, buffer, readbytes);
+			write(1, buffer, readbytes - 2);
 		}
 		if(!waitpid(i3statusPid, NULL, WNOHANG)) {
 			if(kill(i3statusPid, SIGTERM)) {
@@ -140,7 +148,7 @@ void threadFunc(void* arg) {
 		recv(sockfd, &receivedHeader, sizeof(i3_ipc_header_t), 0);
 		recv(sockfd, receivedPayload, 1024, 0);
 		//printf("\nTHREAD: length=%i\nTHREAD: type=%u\nTHREAD: payload=%s\n", receivedHeader.size, receivedHeader.type, receivedPayload);
-		write(1, buffer, *td->readbytes);
+		write(1, buffer, *td->readbytes - 2);
 		receivedPayload[0] = '\0';
 	}
 }
@@ -184,9 +192,9 @@ int prependRate(char* buffer, FILE* txFile, FILE* rxFile, int bufferLen) {
 		rxUnit = "mib/s↓";
 	}
 	char rateStr[128];
-	sprintf(rateStr, ",[{\"full_text\":\"%.2f%s %.2f%s\"}", rx, rxUnit, tx, txUnit);
+	sprintf(rateStr, ",[{\"full_text\":\"%.2f%s %.2f%s\"},", rx, rxUnit, tx, txUnit);
 	int len = strlen(rateStr);
-	memmove(buffer + len, buffer, bufferLen);
+	memmove(buffer + len - 2, buffer, bufferLen);
 	memcpy(buffer, rateStr, len);
 	return len;
 }
