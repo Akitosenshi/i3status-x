@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
 		}
 		while(!terminate && readbytes != -1) {
 			readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-			int len = prependRate(buffer, txFile, rxFile, readbytes + 1);
+			readbytes += prependRate(buffer, txFile, rxFile, readbytes + 1);
 			buffer[readbytes] = '\0';
 			write(1, buffer, readbytes);
 		}
@@ -161,8 +161,8 @@ int prependRate(char* buffer, FILE* txFile, FILE* rxFile, int bufferLen) {
 	fread(txBytesStr, 32, 1, txFile);
 	lastTxBytes = txBytes;
 	lastRxBytes = rxBytes;
-	double rxBytes = atof(rxBytesStr);
-	double txBytes = atof(txBytesStr);
+	rxBytes = atof(rxBytesStr);
+	txBytes = atof(txBytesStr);
 	double tx = txBytes - lastTxBytes;
 	double rx = rxBytes - lastRxBytes;
 	lastTime = currTime;
@@ -171,20 +171,20 @@ int prependRate(char* buffer, FILE* txFile, FILE* rxFile, int bufferLen) {
 	tx /= interval;
 	rx /= interval;
 	//tx/rx is now bytes per second
-	double ktx = tx / 1024;
-	double krx = rx / 1024;
-	char txUnit = "kib/s↑";
-	char rxUnit = "kib/s↓";
-	if(ktx > 1024) {
-		ktx /= 1024;
+	tx /= 1024;
+	rx /= 1024;
+	char* txUnit = "kib/s↑";
+	char* rxUnit = "kib/s↓";
+	if(tx > 1024) {
+		tx /= 1024;
 		txUnit = "mib/s↑";
 	}
-	if(krx > 1024) {
-		krx /= 1024;
+	if(rx > 1024) {
+		rx /= 1024;
 		rxUnit = "mib/s↓";
 	}
 	char rateStr[128];
-	sprintf(rateStr, "%.2f%s %.2f%s", rx, rxUnit, tx, txUnit);
+	sprintf(rateStr, ",[{\"full_text\":\"%.2f%s %.2f%s\"}", rx, rxUnit, tx, txUnit);
 	int len = strlen(rateStr);
 	memmove(buffer + len, buffer, bufferLen);
 	memcpy(buffer, rateStr, len);
