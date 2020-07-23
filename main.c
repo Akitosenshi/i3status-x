@@ -147,10 +147,16 @@ void threadFunc(void* arg) {
 	while(1) {
 		recv(sockfd, &receivedHeader, sizeof(i3_ipc_header_t), 0);
 		recv(sockfd, receivedPayload, 1024, 0);
+		if((receivedHeader.type ^ I3_IPC_EVENT_MASK) == I3_IPC_EVENT_SHUTDOWN) {
+			terminate = 1;
+			shutdown(sockfd, SHUT_RDWR);
+			break;
+		}
 		//printf("\nTHREAD: length=%i\nTHREAD: type=%u\nTHREAD: payload=%s\n", receivedHeader.size, receivedHeader.type, receivedPayload);
 		write(1, buffer, *td->readbytes - 2);
 		receivedPayload[0] = '\0';
 	}
+	pthread_exit(0);
 }
 
 int prependRate(char* buffer, FILE* txFile, FILE* rxFile, int bufferLen) {
