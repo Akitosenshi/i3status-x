@@ -32,7 +32,15 @@ int main(int argc, char** argv) {
 		sprintf(txPath, "/sys/class/net/%s/statistics/tx_bytes", ifName);
 		sprintf(rxPath, "/sys/class/net/%s/statistics/rx_bytes", ifName);
 		rxFile = fopen(rxPath, "r");
+		if(rxFile == NULL){
+			perror("error at fopen");
+			return 1;
+		}
 		txFile = fopen(txPath, "r");
+		if(txFile == NULL){
+			perror("error at fopen");
+			return 1;
+		}
 	}
 	int ipc[2];
 	if(pipe(ipc) == -1) {
@@ -105,7 +113,7 @@ int main(int argc, char** argv) {
 				}
 				return 0;
 			}
-			waitpid(tmpPid, NULL, NULL);
+			waitpid(tmpPid, NULL, 0);
 		}
 		sleep(1);
 		if(execv("/usr/bin/i3status", NULL) == -1) {
@@ -143,7 +151,7 @@ void threadFunc(void* arg) {
 	i3_ipc_header_t receivedHeader;
 	write(sockfd, &header, sizeof(i3_ipc_header_t));
 	write(sockfd, payload, strlen(payload));
-	printf("THREAD: payload=%s\n", payload);
+	//printf("THREAD: payload=%s\n", payload);
 	while(1) {
 		recv(sockfd, &receivedHeader, sizeof(i3_ipc_header_t), 0);
 		recv(sockfd, receivedPayload, 1024, 0);
@@ -197,7 +205,7 @@ int prependRate(char* buffer, FILE* txFile, FILE* rxFile, int bufferLen) {
 		rx /= 1024;
 		rxUnit = "mib/s↓";
 	}
-	char rateStr[128];
+	char rateStr[128] = "";
 	sprintf(rateStr, ",[{\"full_text\":\"%.2f%s %.2f%s\"},", rx, rxUnit, tx, txUnit);
 	int len = strlen(rateStr);
 	memmove(buffer + len - 2, buffer, bufferLen);
