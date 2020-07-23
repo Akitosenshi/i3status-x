@@ -32,12 +32,12 @@ int main(int argc, char** argv) {
 		sprintf(txPath, "/sys/class/net/%s/statistics/tx_bytes", ifName);
 		sprintf(rxPath, "/sys/class/net/%s/statistics/rx_bytes", ifName);
 		rxFile = fopen(rxPath, "r");
-		if(rxFile == NULL){
+		if(rxFile == NULL) {
 			perror("error at fopen");
 			return 1;
 		}
 		txFile = fopen(txPath, "r");
-		if(txFile == NULL){
+		if(txFile == NULL) {
 			perror("error at fopen");
 			return 1;
 		}
@@ -190,6 +190,7 @@ int prependRate(char* buffer, FILE* txFile, FILE* rxFile, int bufferLen) {
 	lastTime = currTime;
 	currTime = time(0);
 	int interval = currTime - lastTime;
+	interval = interval ? interval : 1;
 	tx /= interval;
 	rx /= interval;
 	//tx/rx is now bytes per second
