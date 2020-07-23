@@ -146,7 +146,7 @@ void threadFunc(void* arg) {
 		.type = I3_IPC_MESSAGE_TYPE_SUBSCRIBE};
 	char receivedPayload[1024];
 	//char payload[] = "[\"window\", \"workspace\", \"binding\"]";
-	char payload[] = "[\"window\"]";
+	char payload[] = "[\"window\", \"binding\"]";
 	header.size = strlen(payload);
 	i3_ipc_header_t receivedHeader;
 	write(sockfd, &header, sizeof(i3_ipc_header_t));
