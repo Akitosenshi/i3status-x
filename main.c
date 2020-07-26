@@ -65,14 +65,23 @@ int main(int argc, char** argv) {
 		td->buffer = buffer;
 		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
 		buffer[strlen(buffer) - 1] = '\0';
-		td->socketPath = (char*)malloc(readbytes);
 		td->readbytes = &readbytes;
+		td->socketPath = (char*)malloc(readbytes);
 		if(td->socketPath == NULL) {
 			perror("error in malloc()");
 			return 1;
 		}
 		strcpy(td->socketPath, buffer);
 		memset(buffer, 0, readbytes + 1);
+		pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+		{
+			int ret = pthread_mutex_init(&mutex, NULL);
+			if(ret != 0) {
+				fprintf(stderr, "Error in pthread_mutex_init(): %i", ret);
+				return 1;
+			}
+		}
+		td->mutex = &mutex;
 		pthread_t threadId = 0;
 		if(pthread_create(&threadId, NULL, threadFunc, td) == -1) {
 			fprintf(stderr, "error in pthread_create()\n");
@@ -90,7 +99,9 @@ int main(int argc, char** argv) {
 			readbytes = read(ipc[0], buffer, BUFFER_SIZE);
 			readbytes += prependRate(buffer, txFile, rxFile, readbytes + 1);
 			buffer[readbytes] = '\0';
+			pthread_mutex_lock(&mutex);
 			write(1, buffer, readbytes - 2);
+			pthread_mutex_unlock(&mutex);
 		}
 		if(!waitpid(i3statusPid, NULL, WNOHANG)) {
 			if(kill(i3statusPid, SIGTERM)) {
@@ -127,6 +138,7 @@ int main(int argc, char** argv) {
 void threadFunc(void* arg) {
 	struct threadData* td = (struct threadData*)arg;
 	volatile char* buffer = td->buffer;
+	pthread_mutex_t* mutex = td->mutex;
 	struct sockaddr_un addr;
 	addr.sun_family = AF_LOCAL;
 	strcpy(addr.sun_path, td->socketPath);
@@ -145,13 +157,11 @@ void threadFunc(void* arg) {
 		.magic = {'i', '3', '-', 'i', 'p', 'c'},
 		.type = I3_IPC_MESSAGE_TYPE_SUBSCRIBE};
 	char receivedPayload[1024];
-	//char payload[] = "[\"window\", \"workspace\", \"binding\"]";
 	char payload[] = "[\"window\", \"binding\"]";
 	header.size = strlen(payload);
 	i3_ipc_header_t receivedHeader;
 	write(sockfd, &header, sizeof(i3_ipc_header_t));
 	write(sockfd, payload, strlen(payload));
-	//printf("THREAD: payload=%s\n", payload);
 	while(1) {
 		recv(sockfd, &receivedHeader, sizeof(i3_ipc_header_t), 0);
 		recv(sockfd, receivedPayload, 1024, 0);
@@ -160,8 +170,9 @@ void threadFunc(void* arg) {
 			shutdown(sockfd, SHUT_RDWR);
 			break;
 		}
-		//printf("\nTHREAD: length=%i\nTHREAD: type=%u\nTHREAD: payload=%s\n", receivedHeader.size, receivedHeader.type, receivedPayload);
+		pthread_mutex_lock(mutex);
 		write(1, buffer, *td->readbytes - 2);
+		pthread_mutex_unlock(mutex);
 		receivedPayload[0] = '\0';
 	}
 	pthread_exit(0);

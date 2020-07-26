@@ -10,6 +10,7 @@ struct threadData {
 	int* readbytes;
 	char* buffer;
 	char* socketPath;
+	pthread_mutex_t* mutex;
 };
 
 void threadFunc(void*);
