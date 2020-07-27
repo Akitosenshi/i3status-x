@@ -24,6 +24,8 @@ int main(int argc, char** argv) {
 	FILE* txFile;
 	{
 		char ifName[32] = "enp33s0";
+		//TODO autodetect interfaces and monitor one or more (see getifaddrs() in ifaddrs.h)
+		//maybe add config/customization
 		if(argc > 1) {
 			strcpy(ifName, argv[1]);
 		}
