@@ -1,5 +1,7 @@
 #include "main.h"
 #define __USE_POSIX
+#define _DEFAULT_SOURCE
+#include <dirent.h>
 #include <errno.h>
 #include <i3/ipc.h>
 #include <netdb.h>
@@ -20,6 +22,11 @@
 volatile __sig_atomic_t terminate = 0;
 
 int main(int argc, char** argv) {
+	struct interfaceByteFiles* ifList = getIfFiles();		//if I am planning on making this app customizable I MUST make this optional
+	if(ifList == NULL){
+		printf("error in getIfFiles() or no interfaces found");
+		return 1;
+	}
 	FILE* rxFile;
 	FILE* txFile;
 	{
@@ -134,6 +141,7 @@ int main(int argc, char** argv) {
 			return 1;
 		}
 	}
+	freeIfList(ifList);
 	return 0;
 }
 
@@ -225,4 +233,68 @@ int prependRate(char* buffer, FILE* txFile, FILE* rxFile, int bufferLen) {
 	memmove(buffer + len - 2, buffer, bufferLen);
 	memcpy(buffer, rateStr, len);
 	return len;
+}
+
+struct interfaceByteFiles* getIfFiles(){		//TODO et ifnames through getifaddrs() and check if its up and a physical interface
+	DIR* ifDir = opendir("/sys/class/net");
+	struct interfaceByteFiles* list = (struct interfaceByteFiles*)malloc(sizeof(struct interfaceByteFiles));
+	struct interfaceByteFiles* curr = list;
+	errno = 0;
+	struct dirent* entry;
+	while(entry = readdir(ifDir)){
+		for(int counter = 0; counter < IFNAMECOUNT; ++counter){
+			if(strncmp(entry->d_name + 15, IFNAMES[counter], IFNAMELEN[counter]) == 0){
+				char pathRx[256] = "";
+				char pathTx[256] = "";
+				strcpy(pathRx, entry->d_name);
+				strcat(pathRx, "/statistics/");
+				strcpy(pathTx, pathRx);
+				strcat(pathRx, "rx_bytes");
+				strcat(pathTx, "tx_bytes");
+				curr->rx = fopen(pathRx, "r");
+				if(curr->rx == NULL){
+					char err[1024] = "error in fopen(rx) on iterface %s";
+					sprintf(err, err, entry->d_name);
+					perror(err);
+					curr->rx = NULL;
+					errno = 0;
+					continue;
+				}
+				curr->tx = fopen(pathTx, "r");
+				if(curr->tx == NULL){
+					char err[1024] = "error in fopen(tx) on iterface %s";
+					sprintf(err, err, entry->d_name);
+					perror(err);
+					curr->rx = NULL;
+					curr->tx = NULL;
+					errno = 0;
+					continue;
+				}
+				struct interfaceByteFiles* next = (struct interfaceByteFiles*)malloc(sizeof(struct interfaceByteFiles));
+				curr->next = next;
+				next->prev = curr;
+				curr = next;
+			}
+		}
+	}
+	if(errno != 0){
+		perror("error in readdir()");
+		freeIfList(list);
+	}
+	return list;
+}
+
+void freeIfList(struct interfaceByteFiles* list){
+	struct interfaceByteFiles* curr;
+	while(curr->next){
+		curr = list;
+		fclose(curr->rx);
+		fclose(curr->tx);
+		free(list);
+		list = curr->next;
+		curr->prev = NULL;
+		curr->next = NULL;
+	}
+	list = NULL;
+	curr = NULL;
 }
