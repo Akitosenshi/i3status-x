@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ifaddrs.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -22,35 +23,22 @@
 volatile __sig_atomic_t terminate = 0;
 
 int main(int argc, char** argv) {
-	struct interfaceByteFiles* ifList = getIfFiles();		//if I am planning on making this app customizable I MUST make this optional
-	if(ifList == NULL){
-		printf("error in getIfFiles() or no interfaces found");
+	//if I am planning on making this app customizable I MUST make this optional
+	struct ifaddrs* ifList;
+	if(getifaddrs(&ifList) == -1){
+		perror("error in getifaddrs()");
 		return 1;
 	}
-	FILE* rxFile;
-	FILE* txFile;
 	{
-		char ifName[32] = "enp33s0";
-		//TODO autodetect interfaces and monitor one or more (see getifaddrs() in ifaddrs.h)
-		//maybe add config/customization
-		if(argc > 1) {
-			strcpy(ifName, argv[1]);
-		}
-		char txPath[255];
-		char rxPath[255];
-		sprintf(txPath, "/sys/class/net/%s/statistics/tx_bytes", ifName);
-		sprintf(rxPath, "/sys/class/net/%s/statistics/rx_bytes", ifName);
-		rxFile = fopen(rxPath, "r");
-		if(rxFile == NULL) {
-			perror("error at fopen");
-			return 1;
-		}
-		txFile = fopen(txPath, "r");
-		if(txFile == NULL) {
-			perror("error at fopen");
-			return 1;
+		struct ifaddrs* ifCurr;
+		for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next){
+			if(ifCurr->ifa_addr->sa_family == AF_INET || ifCurr->ifa_addr->sa_family == AF_INET6){
+				struct rtnl_link_stats *stats = ifCurr->ifa_data; //which header is this in?
+				
+			}
 		}
 	}
+
 	int ipc[2];
 	if(pipe(ipc) == -1) {
 		perror("error in pipe()");
@@ -106,7 +94,7 @@ int main(int argc, char** argv) {
 		//main lööp
 		while(!terminate && readbytes != -1) {
 			readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-			readbytes += prependRate(buffer, txFile, rxFile, readbytes + 1);
+			readbytes += prependRate(buffer, readbytes + 1);
 			buffer[readbytes] = '\0';
 			pthread_mutex_lock(&mutex);
 			write(1, buffer, readbytes - 2);
@@ -127,7 +115,7 @@ int main(int argc, char** argv) {
 			pid_t tmpPid = fork();
 			if(!tmpPid) {
 				printf("executing i3 --get-socketpath");
-				if(execl("/usr/bin/i3", "i3", "--get-socketpath", '\0') == -1) {
+				if(execl("/usr/bin/i3", "/usr/bin/i3", "--get-socketpath", '\0') == -1) {
 					perror("error in execv(i3)");
 					return 1;
 				}
@@ -135,13 +123,13 @@ int main(int argc, char** argv) {
 			}
 			waitpid(tmpPid, NULL, 0);
 		}
-		sleep(1);
+		//sleep(1);
 		if(execv("/usr/bin/i3status", NULL) == -1) {
 			perror("error in execv(i3status)");
 			return 1;
 		}
 	}
-	freeIfList(ifList);
+	freeifaddrs(&ifList);
 	return 0;
 }
 
@@ -188,26 +176,11 @@ void threadFunc(void* arg) {
 	pthread_exit(0);
 }
 
-int prependRate(char* buffer, FILE* txFile, FILE* rxFile, int bufferLen) {
+int prependRate(char* buffer, int bufferLen) { // should use (struct rtnl_link_stats*)ifa_data->rx_bytes/tx_bytes
 	//get up/down rate and prepend to buffer
 	static time_t lastTime = 0;
 	static time_t currTime = 0;
-	static double lastRxBytes = 0;
-	static double lastTxBytes = 0;
-	static double rxBytes = 0;
-	static double txBytes = 0;
-	char rxBytesStr[32] = "";
-	char txBytesStr[32] = "";
-	rewind(rxFile);
-	fread(rxBytesStr, 32, 1, rxFile);
-	rewind(txFile);
-	fread(txBytesStr, 32, 1, txFile);
-	lastTxBytes = txBytes;
-	lastRxBytes = rxBytes;
-	rxBytes = atof(rxBytesStr);
-	txBytes = atof(txBytesStr);
-	double tx = txBytes - lastTxBytes;
-	double rx = rxBytes - lastRxBytes;
+	
 	lastTime = currTime;
 	currTime = time(0);
 	int interval = currTime - lastTime;
@@ -233,68 +206,4 @@ int prependRate(char* buffer, FILE* txFile, FILE* rxFile, int bufferLen) {
 	memmove(buffer + len - 2, buffer, bufferLen);
 	memcpy(buffer, rateStr, len);
 	return len;
-}
-
-struct interfaceByteFiles* getIfFiles(){		//TODO et ifnames through getifaddrs() and check if its up and a physical interface
-	DIR* ifDir = opendir("/sys/class/net");
-	struct interfaceByteFiles* list = (struct interfaceByteFiles*)malloc(sizeof(struct interfaceByteFiles));
-	struct interfaceByteFiles* curr = list;
-	errno = 0;
-	struct dirent* entry;
-	while(entry = readdir(ifDir)){
-		for(int counter = 0; counter < IFNAMECOUNT; ++counter){
-			if(strncmp(entry->d_name + 15, IFNAMES[counter], IFNAMELEN[counter]) == 0){
-				char pathRx[256] = "";
-				char pathTx[256] = "";
-				strcpy(pathRx, entry->d_name);
-				strcat(pathRx, "/statistics/");
-				strcpy(pathTx, pathRx);
-				strcat(pathRx, "rx_bytes");
-				strcat(pathTx, "tx_bytes");
-				curr->rx = fopen(pathRx, "r");
-				if(curr->rx == NULL){
-					char err[1024] = "error in fopen(rx) on iterface %s";
-					sprintf(err, err, entry->d_name);
-					perror(err);
-					curr->rx = NULL;
-					errno = 0;
-					continue;
-				}
-				curr->tx = fopen(pathTx, "r");
-				if(curr->tx == NULL){
-					char err[1024] = "error in fopen(tx) on iterface %s";
-					sprintf(err, err, entry->d_name);
-					perror(err);
-					curr->rx = NULL;
-					curr->tx = NULL;
-					errno = 0;
-					continue;
-				}
-				struct interfaceByteFiles* next = (struct interfaceByteFiles*)malloc(sizeof(struct interfaceByteFiles));
-				curr->next = next;
-				next->prev = curr;
-				curr = next;
-			}
-		}
-	}
-	if(errno != 0){
-		perror("error in readdir()");
-		freeIfList(list);
-	}
-	return list;
-}
-
-void freeIfList(struct interfaceByteFiles* list){
-	struct interfaceByteFiles* curr;
-	while(curr->next){
-		curr = list;
-		fclose(curr->rx);
-		fclose(curr->tx);
-		free(list);
-		list = curr->next;
-		curr->prev = NULL;
-		curr->next = NULL;
-	}
-	list = NULL;
-	curr = NULL;
 }
