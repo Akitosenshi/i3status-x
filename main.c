@@ -17,28 +17,13 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <linux/if_link.h>
 #include <time.h>
 #include <unistd.h>
 
 volatile __sig_atomic_t terminate = 0;
 
 int main(int argc, char** argv) {
-	//if I am planning on making this app customizable I MUST make this optional
-	struct ifaddrs* ifList;
-	if(getifaddrs(&ifList) == -1){
-		perror("error in getifaddrs()");
-		return 1;
-	}
-	{
-		struct ifaddrs* ifCurr;
-		for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next){
-			if(ifCurr->ifa_addr->sa_family == AF_INET || ifCurr->ifa_addr->sa_family == AF_INET6){
-				struct rtnl_link_stats *stats = ifCurr->ifa_data; //which header is this in?
-				
-			}
-		}
-	}
-
 	int ipc[2];
 	if(pipe(ipc) == -1) {
 		perror("error in pipe()");
@@ -178,6 +163,28 @@ void threadFunc(void* arg) {
 
 int prependRate(char* buffer, int bufferLen) { // should use (struct rtnl_link_stats*)ifa_data->rx_bytes/tx_bytes
 	//get up/down rate and prepend to buffer
+
+	struct ifaddrs* ifList;
+	if(getifaddrs(&ifList) == -1){
+		perror("error in getifaddrs()");
+		return 1;
+	}
+	struct rtnl_link_stats *stats;
+	struct ifaddrs* ifCurr;
+	static unsigned int tx;
+	static unsigned int rx;
+	unsigned int last_tx = tx;
+	unsigned int last_rx = rx;
+	tx = 0;
+	rx = 0;
+	for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next){
+		if(ifCurr->ifa_addr->sa_family == AF_PACKET && strcmp(ifCurr->ifa_name, "lo") == 0){ //TODO is there a better way to exclude loopback interface?
+			stats = ifCurr->ifa_data;
+			//TODO add together all data n stuff
+		}
+	}
+	freeifaddrs(ifList);
+
 	static time_t lastTime = 0;
 	static time_t currTime = 0;
 	
