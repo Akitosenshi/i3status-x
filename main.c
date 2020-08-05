@@ -114,7 +114,6 @@ int main(int argc, char** argv) {
 			return 1;
 		}
 	}
-	freeifaddrs(&ifList);
 	return 0;
 }
 
@@ -128,7 +127,7 @@ void threadFunc(void* arg) {
 	int sockfd = socket(AF_LOCAL, SOCK_STREAM, 0);
 	if(sockfd == -1) {
 		perror("error in socket()");
-		return 1;
+		return;
 	}
 	if(connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
 		perror("error in connect");
@@ -161,34 +160,36 @@ void threadFunc(void* arg) {
 	pthread_exit(0);
 }
 
-int prependRate(char* buffer, int bufferLen) { // should use (struct rtnl_link_stats*)ifa_data->rx_bytes/tx_bytes
+int prependRate(char* buffer, int bufferLen) {
 	//get up/down rate and prepend to buffer
 
 	struct ifaddrs* ifList;
 	if(getifaddrs(&ifList) == -1){
 		perror("error in getifaddrs()");
-		return 1;
+		return 0;
 	}
-	struct rtnl_link_stats *stats;
-	struct ifaddrs* ifCurr;
-	static unsigned int tx;
-	static unsigned int rx;
-	unsigned int last_tx = tx;
-	unsigned int last_rx = rx;
-	tx = 0;
-	rx = 0;
+	struct rtnl_link_stats* stats;
+	struct ifaddrs* ifCurr = ifList;
+	static unsigned int lastTxBytes;
+	static unsigned int lastRxBytes;
+	unsigned int txBytes = 0;
+	unsigned int rxBytes = 0;
 	for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next){
 		if(ifCurr->ifa_addr->sa_family == AF_PACKET && strcmp(ifCurr->ifa_name, "lo")){ //TODO is there a better way to exclude loopback interface?
-			stats = ifCurr->ifa_data;
+			stats = (struct rtnl_link_stats*)ifCurr->ifa_data;
 			//TODO add together all data n stuff
+			txBytes += stats->tx_bytes;
+			rxBytes += stats->rx_bytes;
 		}
 	}
 	freeifaddrs(ifList);
-
-	static time_t lastTime = 0;
-	static time_t currTime = 0;
+	double tx = txBytes - lastTxBytes;
+	double rx = rxBytes - lastRxBytes;
+	lastTxBytes = txBytes;
+	lastRxBytes = rxBytes;
 	
-	lastTime = currTime;
+	static time_t currTime = 0;
+	time_t lastTime = currTime;
 	currTime = time(0);
 	int interval = currTime - lastTime;
 	interval = interval ? interval : 1;
@@ -207,7 +208,7 @@ int prependRate(char* buffer, int bufferLen) { // should use (struct rtnl_link_s
 		rx /= 1024;
 		rxUnit = "mib/s↓";
 	}
-	char rateStr[128] = "";
+	char rateStr[256] = "";
 	sprintf(rateStr, ",[{\"full_text\":\"%.2f%s %.2f%s\"},", rx, rxUnit, tx, txUnit);
 	int len = strlen(rateStr);
 	memmove(buffer + len - 2, buffer, bufferLen);

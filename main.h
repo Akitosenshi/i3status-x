@@ -8,7 +8,7 @@
 
 struct threadData {
 	int* readbytes;
-	char* buffer;
+	volatile char* buffer;
 	char* socketPath;
 	pthread_mutex_t* mutex;
 };
