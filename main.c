@@ -1,6 +1,7 @@
 #include "main.h"
 #define __USE_POSIX
 #define _DEFAULT_SOURCE
+#define __USE_MISC
 #include <dirent.h>
 #include <errno.h>
 #include <i3/ipc.h>
@@ -17,6 +18,7 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <net/if.h>
 #include <linux/if_link.h>
 #include <time.h>
 #include <unistd.h>
@@ -130,7 +132,7 @@ void threadFunc(void* arg) {
 		return;
 	}
 	if(connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-		perror("error in connect");
+		perror("error in connect()");
 		terminate = 1;
 		return;
 	}
@@ -174,20 +176,20 @@ int prependRate(char* buffer, int bufferLen) {
 	static unsigned int lastRxBytes;
 	unsigned int txBytes = 0;
 	unsigned int rxBytes = 0;
-	for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next){
-		if(ifCurr->ifa_addr->sa_family == AF_PACKET && strcmp(ifCurr->ifa_name, "lo")){ //TODO is there a better way to exclude loopback interface?
+	for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next){ //TODO customization of interfaces to monitor; exclude bridges/tunnels
+		if(ifCurr->ifa_addr->sa_family == AF_PACKET && ifCurr->ifa_flags & IFF_UP && !(ifCurr->ifa_flags & IFF_LOOPBACK)){
+			//only do this for interfaces that are up AND not loopback
 			stats = (struct rtnl_link_stats*)ifCurr->ifa_data;
-			//TODO add together all data n stuff
 			txBytes += stats->tx_bytes;
 			rxBytes += stats->rx_bytes;
 		}
 	}
 	freeifaddrs(ifList);
+
 	double tx = txBytes - lastTxBytes;
 	double rx = rxBytes - lastRxBytes;
 	lastTxBytes = txBytes;
 	lastRxBytes = rxBytes;
-	
 	static time_t currTime = 0;
 	time_t lastTime = currTime;
 	currTime = time(0);
@@ -198,6 +200,7 @@ int prependRate(char* buffer, int bufferLen) {
 	//tx/rx is now bytes per second
 	tx /= 1024;
 	rx /= 1024;
+
 	char* txUnit = "kib/s↑";
 	char* rxUnit = "kib/s↓";
 	if(tx > 1024) {
