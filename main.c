@@ -5,6 +5,9 @@
 #include <dirent.h>
 #include <errno.h>
 #include <i3/ipc.h>
+#include <ifaddrs.h>
+#include <linux/if_link.h>
+#include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
@@ -12,14 +15,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ifaddrs.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
-#include <net/if.h>
-#include <linux/if_link.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -166,7 +166,7 @@ int prependRate(char* buffer, int bufferLen) {
 	//get up/down rate and prepend to buffer
 
 	struct ifaddrs* ifList;
-	if(getifaddrs(&ifList) == -1){
+	if(getifaddrs(&ifList) == -1) {
 		perror("error in getifaddrs()");
 		return 0;
 	}
@@ -177,8 +177,8 @@ int prependRate(char* buffer, int bufferLen) {
 	unsigned int txBytes = 0;
 	unsigned int rxBytes = 0;
 	//TODO customization of interfaces to monitor; exclude bridges/tunnels; abillity to monitor multiple interfaces seperately
-	for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next){ 
-		if(ifCurr->ifa_addr->sa_family == AF_PACKET && ifCurr->ifa_flags & IFF_UP && !(ifCurr->ifa_flags & IFF_LOOPBACK)){
+	for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next) {
+		if(ifCurr->ifa_addr->sa_family == AF_PACKET && ifCurr->ifa_flags & IFF_UP && !(ifCurr->ifa_flags & IFF_LOOPBACK)) {
 			//only do this for interfaces that are up AND not loopback
 			stats = (struct rtnl_link_stats*)ifCurr->ifa_data;
 			txBytes += stats->tx_bytes;
