@@ -25,6 +25,8 @@
 
 volatile __sig_atomic_t terminate = 0;
 
+//TODO I should really use some json lib (probably yajl as its used by i3status)
+
 int main(int argc, char** argv) {
 	int ipc[2];
 	if(pipe(ipc) == -1) {
