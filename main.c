@@ -1,8 +1,10 @@
 #include "main.h"
+#include "error.h"
+#include "threadData.h"
+
 #define __USE_POSIX
 #define _DEFAULT_SOURCE
 #define __USE_MISC
-#include <dirent.h>
 #include <errno.h>
 #include <i3/ipc.h>
 #include <ifaddrs.h>
@@ -22,6 +24,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <yajl/yajl_tree.h>
 
 volatile __sig_atomic_t terminate = 0;
 
@@ -30,47 +33,51 @@ volatile __sig_atomic_t terminate = 0;
 int main(int argc, char** argv) {
 	int ipc[2];
 	if(pipe(ipc) == -1) {
-		perror("error in pipe()");
+		PRINT_ERROR("error in pipe()");
 		return 1;
 	}
 	__pid_t i3statusPid = fork();
 	if(i3statusPid == -1) {
-		perror("error in fork()\n");
+		PRINT_ERROR("error in fork()");
 		return 1;
 	}
 	if(i3statusPid) {
 		//parent
 		close(ipc[1]);
 		int readbytes;
+		char* errBuf = (char*)malloc(1024);
+		if(errBuf == NULL) {
+			PRINT_ERROR("error in malloc()");
+			return 1;
+		}
 		volatile char* buffer = (char*)malloc(BUFFER_SIZE);
 		if(buffer == NULL) {
-			perror("error in malloc()");
+			PRINT_ERROR("error in malloc()");
 			return 1;
 		}
-		struct threadData* td = (struct threadData*)malloc(sizeof(struct threadData));
-		td->buffer = buffer;
+		yajl_val jsonTree;
+
 		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-		buffer[strlen(buffer) - 1] = '\0';
-		td->readbytes = &readbytes;
-		td->socketPath = (char*)malloc(readbytes);
-		if(td->socketPath == NULL) {
-			perror("error in malloc()");
-			return 1;
-		}
-		strcpy(td->socketPath, buffer);
-		memset(buffer, 0, readbytes + 1);
 		pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 		{
 			int ret = pthread_mutex_init(&mutex, NULL);
 			if(ret != 0) {
-				fprintf(stderr, "Error in pthread_mutex_init(): %i", ret);
+				char err[64];
+				sprintf(err, "Error in pthread_mutex_init(): %i", ret);
+				PRINT_ERROR_NO_PERROR(err);
 				return 1;
 			}
 		}
-		td->mutex = &mutex;
+		struct threadData* td = genThreadData(&mutex, &readbytes, buffer, buffer, readbytes);
+		if(td == NULL) {
+			PRINT_ERROR_NO_PERROR("genThreadData() failed");
+			return 1;
+		}
+		memset(buffer, 0, readbytes + 1);
+
 		pthread_t threadId = 0;
 		if(pthread_create(&threadId, NULL, threadFunc, td) == -1) {
-			fprintf(stderr, "error in pthread_create()\n");
+			PRINT_ERROR("error in pthread_create()");
 			return 1;
 		}
 		//eat the garbage
@@ -91,7 +98,7 @@ int main(int argc, char** argv) {
 		}
 		if(!waitpid(i3statusPid, NULL, WNOHANG)) {
 			if(kill(i3statusPid, SIGTERM)) {
-				perror("error in kill()");
+				PRINT_ERROR("error in kill()");
 				fprintf(stderr, "i3status PID was: %i\nit may be required to kill it manually\n", i3statusPid);
 				return 1;
 			}
@@ -102,19 +109,22 @@ int main(int argc, char** argv) {
 		dup2(ipc[1], 1);
 		{
 			pid_t tmpPid = fork();
-			if(!tmpPid) {
+			if(tmpPid == 0) {
 				printf("executing i3 --get-socketpath");
 				if(execl("/usr/bin/i3", "/usr/bin/i3", "--get-socketpath", '\0') == -1) {
-					perror("error in execv(i3)");
+					PRINT_ERROR("error in execv(i3)");
 					return 1;
 				}
 				return 0;
+			}
+			if(tmpPid == -1) {
+				PRINT_ERROR("error at fork()");
 			}
 			waitpid(tmpPid, NULL, 0);
 		}
 		//sleep(1);
 		if(execv("/usr/bin/i3status", NULL) == -1) {
-			perror("error in execv(i3status)");
+			PRINT_ERROR("error in execv(i3status)");
 			return 1;
 		}
 	}
@@ -130,11 +140,11 @@ void threadFunc(void* arg) {
 	strcpy(addr.sun_path, td->socketPath);
 	int sockfd = socket(AF_LOCAL, SOCK_STREAM, 0);
 	if(sockfd == -1) {
-		perror("error in socket()");
+		PRINT_ERROR("error in socket()");
 		return;
 	}
 	if(connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-		perror("error in connect()");
+		PRINT_ERROR("error in connect()");
 		terminate = 1;
 		return;
 	}
@@ -169,7 +179,7 @@ int prependRate(char* buffer, int bufferLen) {
 
 	struct ifaddrs* ifList;
 	if(getifaddrs(&ifList) == -1) {
-		perror("error in getifaddrs()");
+		PRINT_ERROR("error in getifaddrs()");
 		return 0;
 	}
 	struct rtnl_link_stats* stats;
@@ -179,13 +189,14 @@ int prependRate(char* buffer, int bufferLen) {
 	unsigned int txBytes = 0;
 	unsigned int rxBytes = 0;
 	//TODO customization of interfaces to monitor; exclude bridges/tunnels; abillity to monitor multiple interfaces seperately
-	for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next) {
+	while(ifCurr != NULL) {
+		//only do this for interfaces that are up AND not loopback
 		if(ifCurr->ifa_addr->sa_family == AF_PACKET && ifCurr->ifa_flags & IFF_UP && !(ifCurr->ifa_flags & IFF_LOOPBACK)) {
-			//only do this for interfaces that are up AND not loopback
 			stats = (struct rtnl_link_stats*)ifCurr->ifa_data;
 			txBytes += stats->tx_bytes;
 			rxBytes += stats->rx_bytes;
 		}
+		ifCurr = ifCurr->ifa_next;
 	}
 	freeifaddrs(ifList);
 
@@ -204,20 +215,20 @@ int prependRate(char* buffer, int bufferLen) {
 	tx /= 1024;
 	rx /= 1024;
 
-	char* txUnit = "kib/s↑";
-	char* rxUnit = "kib/s↓";
-	if(tx > 1024) {
-		tx /= 1024;
-		txUnit = "mib/s↑";
-	}
-	if(rx > 1024) {
-		rx /= 1024;
-		rxUnit = "mib/s↓";
-	}
-	char rateStr[256] = "";
-	sprintf(rateStr, ",[{\"full_text\":\"%.2f%s %.2f%s\"},", rx, rxUnit, tx, txUnit);
-	int len = strlen(rateStr);
-	memmove(buffer + len - 2, buffer, bufferLen);
-	memcpy(buffer, rateStr, len);
-	return len;
+	// char* txUnit = "kib/s↑";
+	// char* rxUnit = "kib/s↓";
+	// if(tx > 1024) {
+	// 	tx /= 1024;
+	// 	txUnit = "mib/s↑";
+	// }
+	// if(rx > 1024) {
+	// 	rx /= 1024;
+	// 	rxUnit = "mib/s↓";
+	// }
+	// char rateStr[256] = "";
+	// sprintf(rateStr, ",[{\"full_text\":\"%.2f%s %.2f%s\"},", rx, rxUnit, tx, txUnit);
+	// int len = strlen(rateStr);
+	// memmove(buffer + len - 2, buffer, bufferLen);
+	// memcpy(buffer, rateStr, len);
+	// return len;
 }
