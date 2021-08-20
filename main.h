@@ -13,13 +13,8 @@ struct threadData {
 	pthread_mutex_t* mutex;
 };
 
-struct 
-{
-	
-};
-
 int main(int, char**);
 void threadFunc(void*);
-int prependRate(char*, int);
+int prependRate(char*, int, pthread_mutex_t*);
 
 #endif

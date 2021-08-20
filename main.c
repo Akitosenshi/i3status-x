@@ -26,6 +26,7 @@
 volatile __sig_atomic_t terminate = 0;
 
 //TODO I should really use some json lib (probably yajl as its used by i3status)
+//TODO I hate all json libs... I should make my own
 
 int main(int argc, char** argv) {
 	int ipc[2];
@@ -80,10 +81,10 @@ int main(int argc, char** argv) {
 		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
 		buffer[readbytes] = '\0';
 		write(1, buffer, readbytes);
-		//main lööp
+		//main loop
 		while(!terminate && readbytes != -1) {
 			readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-			readbytes += prependRate(buffer, readbytes + 1);
+			readbytes += prependRate(buffer, readbytes + 1, &mutex);
 			buffer[readbytes] = '\0';
 			pthread_mutex_lock(&mutex);
 			write(1, buffer, readbytes - 2);
@@ -164,7 +165,7 @@ void threadFunc(void* arg) {
 	pthread_exit(0);
 }
 
-int prependRate(char* buffer, int bufferLen) {
+int prependRate(char* buffer, int bufferLen, pthread_mutex_t* mutex) {
 	//get up/down rate and prepend to buffer
 
 	struct ifaddrs* ifList;
@@ -217,7 +218,9 @@ int prependRate(char* buffer, int bufferLen) {
 	char rateStr[256] = "";
 	sprintf(rateStr, ",[{\"full_text\":\"%.2f%s %.2f%s\"},", rx, rxUnit, tx, txUnit);
 	int len = strlen(rateStr);
+	pthread_mutex_lock(mutex);
 	memmove(buffer + len - 2, buffer, bufferLen);
 	memcpy(buffer, rateStr, len);
+	pthread_mutex_unlock(mutex);
 	return len;
 }
