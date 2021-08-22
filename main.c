@@ -34,12 +34,12 @@ int main(int argc, char** argv) {
 		perror("error in pipe()");
 		return 1;
 	}
-	__pid_t i3statusPid = fork();
-	if(i3statusPid == -1) {
+	__pid_t i3status_pid = fork();
+	if(i3status_pid == -1) {
 		perror("error in fork()\n");
 		return 1;
 	}
-	if(i3statusPid) {
+	if(i3status_pid) {
 		//parent
 		close(ipc[1]);
 		int readbytes;
@@ -48,17 +48,17 @@ int main(int argc, char** argv) {
 			perror("error in malloc()");
 			return 1;
 		}
-		struct threadData* td = (struct threadData*)malloc(sizeof(struct threadData));
+		struct thread_data* td = (struct thread_data*)malloc(sizeof(struct thread_data));
 		td->buffer = buffer;
 		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
 		buffer[strlen(buffer) - 1] = '\0';
 		td->readbytes = &readbytes;
-		td->socketPath = (char*)malloc(readbytes);
-		if(td->socketPath == NULL) {
+		td->socket_path = (char*)malloc(readbytes);
+		if(td->socket_path == NULL) {
 			perror("error in malloc()");
 			return 1;
 		}
-		strcpy(td->socketPath, buffer);
+		strcpy(td->socket_path, buffer);
 		memset(buffer, 0, readbytes + 1);
 		pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 		{
@@ -90,10 +90,10 @@ int main(int argc, char** argv) {
 			write(1, buffer, readbytes - 2);
 			pthread_mutex_unlock(&mutex);
 		}
-		if(!waitpid(i3statusPid, NULL, WNOHANG)) {
-			if(kill(i3statusPid, SIGTERM)) {
+		if(!waitpid(i3status_pid, NULL, WNOHANG)) {
+			if(kill(i3status_pid, SIGTERM)) {
 				perror("error in kill()");
-				fprintf(stderr, "i3status PID was: %i\nit may be required to kill it manually\n", i3statusPid);
+				fprintf(stderr, "i3status PID was: %i\nit may be required to kill it manually\n", i3status_pid);
 				return 1;
 			}
 		}
@@ -102,8 +102,8 @@ int main(int argc, char** argv) {
 		close(ipc[0]);
 		dup2(ipc[1], 1);
 		{
-			pid_t tmpPid = fork();
-			if(!tmpPid) {
+			pid_t tmp_pid = fork();
+			if(!tmp_pid) {
 				printf("executing i3 --get-socketpath");
 				if(execl("/usr/bin/i3", "/usr/bin/i3", "--get-socketpath", '\0') == -1) {
 					perror("error in execv(i3)");
@@ -111,10 +111,10 @@ int main(int argc, char** argv) {
 				}
 				return 0;
 			}
-			waitpid(tmpPid, NULL, 0);
+			waitpid(tmp_pid, NULL, 0);
 		}
-		//sleep(1);
-		if(execv("/usr/bin/i3status", NULL) == -1) {
+		argv[0] = "i3status";
+		if(execv("/usr/bin/i3status", argv) == -1) {
 			perror("error in execv(i3status)");
 			return 1;
 		}
@@ -123,12 +123,12 @@ int main(int argc, char** argv) {
 }
 
 void threadFunc(void* arg) {
-	struct threadData* td = (struct threadData*)arg;
+	struct thread_data* td = (struct thread_data*)arg;
 	volatile char* buffer = td->buffer;
 	pthread_mutex_t* mutex = td->mutex;
 	struct sockaddr_un addr;
 	addr.sun_family = AF_LOCAL;
-	strcpy(addr.sun_path, td->socketPath);
+	strcpy(addr.sun_path, td->socket_path);
 	int sockfd = socket(AF_LOCAL, SOCK_STREAM, 0);
 	if(sockfd == -1) {
 		perror("error in socket()");

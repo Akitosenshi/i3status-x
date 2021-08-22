@@ -6,10 +6,10 @@
 
 #define BUFFER_SIZE 1024 * 1024
 
-struct threadData {
+struct thread_data {
 	int* readbytes;
 	volatile char* buffer;
-	char* socketPath;
+	char* socket_path;
 	pthread_mutex_t* mutex;
 };
 
