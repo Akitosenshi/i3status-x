@@ -46,25 +46,30 @@ int main(int argc, char** argv) {
 		volatile char* buffer = (char*)malloc(BUFFER_SIZE);
 		if(buffer == NULL) {
 			perror("error in malloc()");
+			if(!waitpid(i3status_pid, NULL, WNOHANG)) {
+				kill(i3status_pid, SIGTERM);
+			}
 			return 1;
 		}
 		struct thread_data* td = (struct thread_data*)malloc(sizeof(struct thread_data));
 		td->buffer = buffer;
-		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-		buffer[strlen(buffer) - 1] = '\0';
-		td->readbytes = &readbytes;
-		td->socket_path = (char*)malloc(readbytes);
+		td->socket_path = getenv("I3SOCK");
 		if(td->socket_path == NULL) {
-			perror("error in malloc()");
+			perror("error in getenv()");
+			if(!waitpid(i3status_pid, NULL, WNOHANG)) {
+				kill(i3status_pid, SIGTERM);
+			}
 			return 1;
 		}
-		strcpy(td->socket_path, buffer);
-		memset(buffer, 0, readbytes + 1);
+		td->readbytes = &readbytes;
 		pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 		{
 			int ret = pthread_mutex_init(&mutex, NULL);
 			if(ret != 0) {
 				fprintf(stderr, "Error in pthread_mutex_init(): %i", ret);
+				if(!waitpid(i3status_pid, NULL, WNOHANG)) {
+					kill(i3status_pid, SIGTERM);
+				}
 				return 1;
 			}
 		}
@@ -72,6 +77,9 @@ int main(int argc, char** argv) {
 		pthread_t thread_id = 0;
 		if(pthread_create(&thread_id, NULL, threadFunc, td) == -1) {
 			fprintf(stderr, "error in pthread_create()\n");
+			if(!waitpid(i3status_pid, NULL, WNOHANG)) {
+				kill(i3status_pid, SIGTERM);
+			}
 			return 1;
 		}
 		//eat the garbage
@@ -90,6 +98,7 @@ int main(int argc, char** argv) {
 			write(1, buffer, readbytes - 2);
 			pthread_mutex_unlock(&mutex);
 		}
+	cleanup:
 		if(!waitpid(i3status_pid, NULL, WNOHANG)) {
 			if(kill(i3status_pid, SIGTERM)) {
 				perror("error in kill()");
@@ -101,18 +110,6 @@ int main(int argc, char** argv) {
 		//child
 		close(ipc[0]);
 		dup2(ipc[1], 1);
-		{
-			pid_t tmp_pid = fork();
-			if(!tmp_pid) {
-				printf("executing i3 --get-socketpath");
-				if(execl("/usr/bin/i3", "/usr/bin/i3", "--get-socketpath", '\0') == -1) {
-					perror("error in execv(i3)");
-					return 1;
-				}
-				return 0;
-			}
-			waitpid(tmp_pid, NULL, 0);
-		}
 		//we won't need argv anymore, so we can just change it.
 		argv[0] = "i3status";
 		if(execvp("i3status", argv) == -1) {
@@ -150,13 +147,16 @@ void threadFunc(void* arg) {
 	i3_ipc_header_t received_header;
 	write(sockfd, &header, sizeof(i3_ipc_header_t));
 	write(sockfd, payload, strlen(payload));
-	while(1) {
+	while(!terminate) {
 		recv(sockfd, &received_header, sizeof(i3_ipc_header_t), 0);
 		recv(sockfd, received_payload, 1024, 0);
 		if((received_header.type ^ I3_IPC_EVENT_MASK) == I3_IPC_EVENT_SHUTDOWN) {
 			terminate = 1;
 			shutdown(sockfd, SHUT_RDWR);
 			break;
+		}
+		if(*td->readbytes < 2) {
+			continue;
 		}
 		pthread_mutex_lock(mutex);
 		write(1, buffer, *td->readbytes - 2);
