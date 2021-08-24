@@ -113,8 +113,9 @@ int main(int argc, char** argv) {
 			}
 			waitpid(tmp_pid, NULL, 0);
 		}
+		//we won't need argv anymore, so we can just change it.
 		argv[0] = "i3status";
-		if(execv("/usr/bin/i3status", argv) == -1) {
+		if(execvp("i3status", argv) == -1) {
 			perror("error in execv(i3status)");
 			return 1;
 		}
@@ -174,7 +175,7 @@ int prependRate(char* buffer, int buffer_len, pthread_mutex_t* mutex) {
 		return 0;
 	}
 	struct rtnl_link_stats* stats;
-	struct ifaddrs* if_curr = if_list;
+	struct ifaddrs* if_curr;
 	static unsigned int last_tx_bytes;
 	static unsigned int last_rx_bytes;
 	unsigned int tx_bytes = 0;
@@ -205,15 +206,18 @@ int prependRate(char* buffer, int buffer_len, pthread_mutex_t* mutex) {
 	tx /= 1024;
 	rx /= 1024;
 
-	char* tx_unit = "kib/s↑";
-	char* rx_unit = "kib/s↓";
+	char *tx_unit, *rx_unit;
 	if(tx > 1024) {
 		tx /= 1024;
 		tx_unit = "mib/s↑";
+	} else {
+		tx_unit = "kib/s↑";
 	}
 	if(rx > 1024) {
 		rx /= 1024;
 		rx_unit = "mib/s↓";
+	} else {
+		rx_unit = "kib/s↓";
 	}
 	char rate_str[256] = "";
 	sprintf(rate_str, ",[{\"full_text\":\"%.2f%s %.2f%s\"},", rx, rx_unit, tx, tx_unit);
