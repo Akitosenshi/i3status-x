@@ -69,8 +69,8 @@ int main(int argc, char** argv) {
 			}
 		}
 		td->mutex = &mutex;
-		pthread_t threadId = 0;
-		if(pthread_create(&threadId, NULL, threadFunc, td) == -1) {
+		pthread_t thread_id = 0;
+		if(pthread_create(&thread_id, NULL, threadFunc, td) == -1) {
 			fprintf(stderr, "error in pthread_create()\n");
 			return 1;
 		}
@@ -143,16 +143,16 @@ void threadFunc(void* arg) {
 	i3_ipc_header_t header = {
 		.magic = {'i', '3', '-', 'i', 'p', 'c'},
 		.type = I3_IPC_MESSAGE_TYPE_SUBSCRIBE};
-	char receivedPayload[1024];
+	char received_payload[1024];
 	char payload[] = "[\"window\", \"binding\"]";
 	header.size = strlen(payload);
-	i3_ipc_header_t receivedHeader;
+	i3_ipc_header_t received_header;
 	write(sockfd, &header, sizeof(i3_ipc_header_t));
 	write(sockfd, payload, strlen(payload));
 	while(1) {
-		recv(sockfd, &receivedHeader, sizeof(i3_ipc_header_t), 0);
-		recv(sockfd, receivedPayload, 1024, 0);
-		if((receivedHeader.type ^ I3_IPC_EVENT_MASK) == I3_IPC_EVENT_SHUTDOWN) {
+		recv(sockfd, &received_header, sizeof(i3_ipc_header_t), 0);
+		recv(sockfd, received_payload, 1024, 0);
+		if((received_header.type ^ I3_IPC_EVENT_MASK) == I3_IPC_EVENT_SHUTDOWN) {
 			terminate = 1;
 			shutdown(sockfd, SHUT_RDWR);
 			break;
@@ -160,44 +160,44 @@ void threadFunc(void* arg) {
 		pthread_mutex_lock(mutex);
 		write(1, buffer, *td->readbytes - 2);
 		pthread_mutex_unlock(mutex);
-		receivedPayload[0] = '\0';
+		received_payload[0] = '\0';
 	}
 	pthread_exit(0);
 }
 
-int prependRate(char* buffer, int bufferLen, pthread_mutex_t* mutex) {
+int prependRate(char* buffer, int buffer_len, pthread_mutex_t* mutex) {
 	//get up/down rate and prepend to buffer
 
-	struct ifaddrs* ifList;
-	if(getifaddrs(&ifList) == -1) {
+	struct ifaddrs* if_list;
+	if(getifaddrs(&if_list) == -1) {
 		perror("error in getifaddrs()");
 		return 0;
 	}
 	struct rtnl_link_stats* stats;
-	struct ifaddrs* ifCurr = ifList;
-	static unsigned int lastTxBytes;
-	static unsigned int lastRxBytes;
-	unsigned int txBytes = 0;
-	unsigned int rxBytes = 0;
+	struct ifaddrs* if_curr = if_list;
+	static unsigned int last_tx_bytes;
+	static unsigned int last_rx_bytes;
+	unsigned int tx_bytes = 0;
+	unsigned int rx_bytes = 0;
 	//TODO customization of interfaces to monitor; exclude bridges/tunnels; abillity to monitor multiple interfaces seperately
-	for(ifCurr = ifList; ifCurr != NULL; ifCurr = ifCurr->ifa_next) {
-		if(ifCurr->ifa_addr->sa_family == AF_PACKET && ifCurr->ifa_flags & IFF_UP && !(ifCurr->ifa_flags & IFF_LOOPBACK)) {
+	for(if_curr = if_list; if_curr != NULL; if_curr = if_curr->ifa_next) {
+		if(if_curr->ifa_addr->sa_family == AF_PACKET && if_curr->ifa_flags & IFF_UP && !(if_curr->ifa_flags & IFF_LOOPBACK)) {
 			//only do this for interfaces that are up AND not loopback
-			stats = (struct rtnl_link_stats*)ifCurr->ifa_data;
-			txBytes += stats->tx_bytes;
-			rxBytes += stats->rx_bytes;
+			stats = (struct rtnl_link_stats*)if_curr->ifa_data;
+			tx_bytes += stats->tx_bytes;
+			rx_bytes += stats->rx_bytes;
 		}
 	}
-	freeifaddrs(ifList);
+	freeifaddrs(if_list);
 
-	double tx = txBytes - lastTxBytes;
-	double rx = rxBytes - lastRxBytes;
-	lastTxBytes = txBytes;
-	lastRxBytes = rxBytes;
-	static time_t currTime = 0;
-	time_t lastTime = currTime;
-	currTime = time(0);
-	int interval = currTime - lastTime;
+	double tx = tx_bytes - last_tx_bytes;
+	double rx = rx_bytes - last_rx_bytes;
+	last_tx_bytes = tx_bytes;
+	last_rx_bytes = rx_bytes;
+	static time_t curr_time = 0;
+	time_t last_time = curr_time;
+	curr_time = time(0);
+	int interval = curr_time - last_time;
 	interval = interval ? interval : 1;
 	tx /= interval;
 	rx /= interval;
@@ -205,22 +205,22 @@ int prependRate(char* buffer, int bufferLen, pthread_mutex_t* mutex) {
 	tx /= 1024;
 	rx /= 1024;
 
-	char* txUnit = "kib/s↑";
-	char* rxUnit = "kib/s↓";
+	char* tx_unit = "kib/s↑";
+	char* rx_unit = "kib/s↓";
 	if(tx > 1024) {
 		tx /= 1024;
-		txUnit = "mib/s↑";
+		tx_unit = "mib/s↑";
 	}
 	if(rx > 1024) {
 		rx /= 1024;
-		rxUnit = "mib/s↓";
+		rx_unit = "mib/s↓";
 	}
-	char rateStr[256] = "";
-	sprintf(rateStr, ",[{\"full_text\":\"%.2f%s %.2f%s\"},", rx, rxUnit, tx, txUnit);
-	int len = strlen(rateStr);
+	char rate_str[256] = "";
+	sprintf(rate_str, ",[{\"full_text\":\"%.2f%s %.2f%s\"},", rx, rx_unit, tx, tx_unit);
+	int len = strlen(rate_str);
 	pthread_mutex_lock(mutex);
-	memmove(buffer + len - 2, buffer, bufferLen);
-	memcpy(buffer, rateStr, len);
+	memmove(buffer + len - 2, buffer, buffer_len);
+	memcpy(buffer, rate_str, len);
 	pthread_mutex_unlock(mutex);
 	return len;
 }
