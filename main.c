@@ -96,6 +96,15 @@ int main(int argc, char** argv) {
 			buffer[readbytes] = '\0';
 			pthread_mutex_lock(&mutex);
 			write(1, buffer, readbytes - 2);
+			//if the buffer does not start with ',' fork and crash to get debug info, then unlock mutex and skip writing
+			if(buffer[0] != ',') {
+				if(!fork()) {
+					int* crash = NULL;
+					*crash = 1;
+				}
+				pthread_mutex_unlock(&mutex);
+				continue;
+			}	 //end debug
 			pthread_mutex_unlock(&mutex);
 		}
 	cleanup:
@@ -160,6 +169,15 @@ void threadFunc(void* arg) {
 		}
 		pthread_mutex_lock(mutex);
 		write(1, buffer, *td->readbytes - 2);
+		//if the buffer does not start with ',' fork and crash to get debug info, then unlock mutex and skip writing
+		if(buffer[0] != ',') {
+			if(!fork()) {
+				int* crash = NULL;
+				*crash = 1;
+			}
+			pthread_mutex_unlock(mutex);
+			continue;
+		}	 //end debug
 		pthread_mutex_unlock(mutex);
 		received_payload[0] = '\0';
 	}
