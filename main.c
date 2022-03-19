@@ -10,6 +10,7 @@
 #include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -82,20 +83,29 @@ int main(int argc, char** argv) {
 			}
 			return 1;
 		}
+		struct pollfd pfd = {
+			.fd = ipc[0],
+			.events = POLLIN | POLLPRI,
+			.revents = NULL,
+		};
+
 		//eat the garbage
 		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-		buffer[readbytes] = '\0';
+		//buffer[readbytes] = '\0';
 		write(1, buffer, readbytes);
 		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-		buffer[readbytes] = '\0';
+		//buffer[readbytes] = '\0';
 		write(1, buffer, readbytes);
+
 		//main loop
 		while(!terminate && readbytes != -1) {
-			readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-			readbytes += prependRate(buffer, readbytes + 1, &mutex);
-			buffer[readbytes] = '\0';
 			pthread_mutex_lock(&mutex);
-			write(1, buffer, readbytes - 2);
+			readbytes = read(ipc[0], buffer, BUFFER_SIZE);
+			pthread_mutex_unlock(&mutex);
+			readbytes += prependRate(buffer, readbytes + 1, &mutex);
+
+			//buffer[readbytes] = '\0';
+			pthread_mutex_lock(&mutex);
 			//if the buffer does not start with ',' fork and crash to get debug info, then unlock mutex and skip writing
 			if(buffer[0] != ',') {
 				if(!fork()) {
@@ -105,7 +115,14 @@ int main(int argc, char** argv) {
 				pthread_mutex_unlock(&mutex);
 				continue;
 			}	 //end debug
+			write(1, buffer, readbytes - 2);
+			fsync(1);
 			pthread_mutex_unlock(&mutex);
+			while(!poll(&pfd, 1, 0)) {
+				// write(1, buffer, readbytes - 2);
+				// fsync(1);
+				usleep(40000);
+			}
 		}
 	cleanup:
 		if(!waitpid(i3status_pid, NULL, WNOHANG)) {
@@ -168,7 +185,6 @@ void threadFunc(void* arg) {
 			continue;
 		}
 		pthread_mutex_lock(mutex);
-		write(1, buffer, *td->readbytes - 2);
 		//if the buffer does not start with ',' fork and crash to get debug info, then unlock mutex and skip writing
 		if(buffer[0] != ',') {
 			if(!fork()) {
@@ -178,6 +194,8 @@ void threadFunc(void* arg) {
 			pthread_mutex_unlock(mutex);
 			continue;
 		}	 //end debug
+		write(1, buffer, *td->readbytes - 2);
+		fsync(1);
 		pthread_mutex_unlock(mutex);
 		received_payload[0] = '\0';
 	}
@@ -200,7 +218,12 @@ int prependRate(char* buffer, int buffer_len, pthread_mutex_t* mutex) {
 	unsigned int rx_bytes = 0;
 	//TODO customization of interfaces to monitor; exclude bridges/tunnels; abillity to monitor multiple interfaces seperately
 	for(if_curr = if_list; if_curr != NULL; if_curr = if_curr->ifa_next) {
-		if(if_curr->ifa_addr->sa_family == AF_PACKET && if_curr->ifa_flags & IFF_UP && !(if_curr->ifa_flags & IFF_LOOPBACK)) {
+		if(
+				if_curr->ifa_addr &&
+				if_curr->ifa_addr->sa_family == AF_PACKET &&
+				if_curr->ifa_flags & IFF_UP &&
+				!(if_curr->ifa_flags & IFF_LOOPBACK)
+				) {
 			//only do this for interfaces that are up AND not loopback
 			stats = (struct rtnl_link_stats*)if_curr->ifa_data;
 			tx_bytes += stats->tx_bytes;

@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdio.h>
 
-#define BUFFER_SIZE 1024 * 1024
+#define BUFFER_SIZE 1024 * 2556
 
 struct thread_data {
 	int* readbytes;
