@@ -1,8 +1,4 @@
 #include "main.h"
-#define __USE_POSIX
-#define _DEFAULT_SOURCE
-#define __USE_MISC
-#include <dirent.h>
 #include <errno.h>
 #include <i3/ipc.h>
 #include <ifaddrs.h>
@@ -44,7 +40,7 @@ int main(int argc, char** argv) {
 		//parent
 		close(ipc[1]);
 		int readbytes;
-		volatile char* buffer = (char*)malloc(BUFFER_SIZE);
+		volatile char* buffer = malloc(BUFFER_SIZE);
 		if(buffer == NULL) {
 			perror("error in malloc()");
 			if(!waitpid(i3status_pid, NULL, WNOHANG)) {
@@ -52,7 +48,7 @@ int main(int argc, char** argv) {
 			}
 			return 1;
 		}
-		struct thread_data* td = (struct thread_data*)malloc(sizeof(struct thread_data));
+		struct thread_data* td = malloc(sizeof(*td));
 		td->buffer = buffer;
 		td->socket_path = getenv("I3SOCK");
 		if(td->socket_path == NULL) {
@@ -86,15 +82,13 @@ int main(int argc, char** argv) {
 		struct pollfd pfd = {
 			.fd = ipc[0],
 			.events = POLLIN | POLLPRI,
-			.revents = NULL,
+			.revents = 0,
 		};
 
 		//eat the garbage
 		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-		//buffer[readbytes] = '\0';
 		write(1, buffer, readbytes);
 		readbytes = read(ipc[0], buffer, BUFFER_SIZE);
-		//buffer[readbytes] = '\0';
 		write(1, buffer, readbytes);
 
 		//main loop
@@ -104,23 +98,11 @@ int main(int argc, char** argv) {
 			pthread_mutex_unlock(&mutex);
 			readbytes += prependRate(buffer, readbytes + 1, &mutex);
 
-			//buffer[readbytes] = '\0';
 			pthread_mutex_lock(&mutex);
-			//if the buffer does not start with ',' fork and crash to get debug info, then unlock mutex and skip writing
-			if(buffer[0] != ',') {
-				if(!fork()) {
-					int* crash = NULL;
-					*crash = 1;
-				}
-				pthread_mutex_unlock(&mutex);
-				continue;
-			}	 //end debug
 			write(1, buffer, readbytes - 2);
 			fsync(1);
 			pthread_mutex_unlock(&mutex);
 			while(!poll(&pfd, 1, 0)) {
-				// write(1, buffer, readbytes - 2);
-				// fsync(1);
 				usleep(40000);
 			}
 		}
@@ -146,7 +128,7 @@ int main(int argc, char** argv) {
 	return 0;
 }
 
-void threadFunc(void* arg) {
+void *threadFunc(void* arg) {
 	struct thread_data* td = (struct thread_data*)arg;
 	volatile char* buffer = td->buffer;
 	pthread_mutex_t* mutex = td->mutex;
@@ -156,12 +138,12 @@ void threadFunc(void* arg) {
 	int sockfd = socket(AF_LOCAL, SOCK_STREAM, 0);
 	if(sockfd == -1) {
 		perror("error in socket()");
-		return;
+		return NULL;
 	}
 	if(connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
 		perror("error in connect()");
 		terminate = 1;
-		return;
+		return NULL;
 	}
 
 	i3_ipc_header_t header = {
@@ -185,15 +167,6 @@ void threadFunc(void* arg) {
 			continue;
 		}
 		pthread_mutex_lock(mutex);
-		//if the buffer does not start with ',' fork and crash to get debug info, then unlock mutex and skip writing
-		if(buffer[0] != ',') {
-			if(!fork()) {
-				int* crash = NULL;
-				*crash = 1;
-			}
-			pthread_mutex_unlock(mutex);
-			continue;
-		}	 //end debug
 		write(1, buffer, *td->readbytes - 2);
 		fsync(1);
 		pthread_mutex_unlock(mutex);
@@ -202,7 +175,7 @@ void threadFunc(void* arg) {
 	pthread_exit(0);
 }
 
-int prependRate(char* buffer, int buffer_len, pthread_mutex_t* mutex) {
+int prependRate(volatile char* buffer, int buffer_len, pthread_mutex_t* mutex) {
 	//get up/down rate and prepend to buffer
 
 	struct ifaddrs* if_list;

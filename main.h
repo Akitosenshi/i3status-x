@@ -14,7 +14,7 @@ struct thread_data {
 };
 
 int main(int, char**);
-void threadFunc(void*);
-int prependRate(char*, int, pthread_mutex_t*);
+void *threadFunc(void*);
+int prependRate(volatile char*, int, pthread_mutex_t*);
 
 #endif
